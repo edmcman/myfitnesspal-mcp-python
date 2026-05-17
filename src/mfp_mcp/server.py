@@ -1895,13 +1895,6 @@ async def mfp_get_recipe(params: GetRecipeInput) -> str:
         return f"Error getting recipe: {str(e)}"
 
 
-MEAL_POSITION_MAP = {
-    "breakfast": 0,
-    "lunch": 1,
-    "dinner": 2,
-    "snacks": 3,
-    "snack": 3,
-}
 
 
 @mcp.tool(
@@ -1918,116 +1911,25 @@ async def mfp_log_saved_meal(params: LogSavedMealInput) -> str:
     """
     Log a saved meal to the MyFitnessPal food diary.
 
-    Fetches the saved meal's ingredients from MyFitnessPal and logs each food
-    item to the specified diary meal slot using the diary API. Use
-    mfp_get_saved_meals to find the meal_id and meal_name first.
+    Uses the add_favorites endpoint to log the meal by name. Use
+    mfp_get_saved_meals to find the meal_name first.
 
     Args:
         params: LogSavedMealInput containing:
-            - meal_id (int): Saved meal ID (from mfp_get_saved_meals)
+            - meal_id (int): Saved meal ID (from mfp_get_saved_meals, currently unused)
             - meal_name (str): Saved meal name (from mfp_get_saved_meals)
             - diary_meal (str): Diary slot — 'Breakfast', 'Lunch', 'Dinner', or 'Snacks'
             - date (str, optional): Date in YYYY-MM-DD format, defaults to today
 
     Returns:
-        str: Confirmation with the number of food items logged and any failures
+        str: Confirmation of the logged meal entry
     """
     try:
         client = get_mfp_client()
         target_date = parse_date(params.date)
-        date_str = target_date.strftime("%Y-%m-%d")
 
-        meal_position = MEAL_POSITION_MAP.get(params.diary_meal.lower(), 2)
-
-        # Fetch the saved meal's ingredient list from the JSON API
-        meals_raw = client.get_meals_detailed()
-        target_meal = next(
-            (m for m in meals_raw if int(m["meal_id"]) == params.meal_id),
-            None,
-        )
-        if target_meal is None:
-            return json.dumps(
-                {"success": False, "error": f"Saved meal with id={params.meal_id} not found."},
-                indent=2,
-            )
-
-        foods = target_meal.get("foods", [])
-        if not foods:
-            return json.dumps(
-                {"success": False, "error": "Saved meal has no food items."},
-                indent=2,
-            )
-
-        # Attempt to get food_ids via get_meal() which tries __NEXT_DATA__ extraction
-        food_id_map: dict[str, str] = {}
-        try:
-            meal_detail = client.get_meal(params.meal_id, params.meal_name)
-            food_id_map = meal_detail.get("_food_ids", {})
-        except Exception as exc:
-            logger.warning("Could not extract food_ids from meal page: %s", exc)
-
-        # Build diary POST payload
-        diary_url = "https://www.myfitnesspal.com/api/services/diary"
-        items = []
-        foods_without_ids = []
-
-        for food in foods:
-            food_name = food.get("description", "")
-            food_id = food_id_map.get(food_name)
-
-            if food_id:
-                items.append({
-                    "type": "food_entry",
-                    "date": date_str,
-                    "meal_position": meal_position,
-                    "food_id": food_id,
-                    "servings": 1,
-                })
-            else:
-                foods_without_ids.append(food_name)
-
-        logged_count = 0
-        errors = []
-
-        if items:
-            response = client.session.post(
-                diary_url,
-                json={"items": items},
-                headers={
-                    "Content-Type": "application/json",
-                    "Accept": "application/json",
-                    "mfp-client-id": "mfp-main-js",
-                    "mfp-user-id": client.user_id or "",
-                    "Authorization": f"Bearer {client.access_token}",
-                },
-            )
-            if response.ok:
-                logged_count = len(items)
-            else:
-                errors.append(f"Diary API returned HTTP {response.status_code}")
-
-        result: dict[str, Any] = {
-            "success": logged_count > 0 or not foods_without_ids,
-            "meal_name": params.meal_name,
-            "date": date_str,
-            "diary_meal": params.diary_meal,
-            "logged_count": logged_count,
-            "total_foods": len(foods),
-        }
-
-        if foods_without_ids:
-            result["warning"] = (
-                f"{len(foods_without_ids)} ingredient(s) could not be logged because "
-                "their food_id was not found on the meal page. This usually means the "
-                "meal page is fully client-side rendered. "
-                "Use mfp_add_food_to_diary for each item manually."
-            )
-            result["missing_foods"] = foods_without_ids
-
-        if errors:
-            result["errors"] = errors
-
-        return json.dumps(result, indent=2)
+        result = client.log_saved_meal(params.meal_name, params.diary_meal, target_date)
+        return json.dumps({"success": True, "entry": result}, indent=2)
 
     except Exception as e:
         return f"Error logging saved meal: {str(e)}"
