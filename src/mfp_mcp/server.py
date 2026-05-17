@@ -618,7 +618,11 @@ class GetReportInput(BaseModel):
 
     report_name: str = Field(
         default="Net Calories",
-        description="Report name (e.g., 'Net Calories', 'Total Calories', 'Protein', 'Fat', 'Carbs')",
+        description="Report name (e.g., 'Net Calories', 'Total Calories', 'Protein', 'Fat', 'Carbs', 'Cardio Calories Burned')",
+    )
+    report_category: str = Field(
+        default="Nutrition",
+        description="Report category: 'Nutrition' for food/macro reports, 'Fitness' for exercise/cardio reports",
     )
     start_date: Optional[str] = Field(
         default=None,
@@ -665,6 +669,35 @@ class AddFoodToDiaryInput(BaseModel):
         default=None,
         description="Unit/serving size description (e.g., '1 cup', '100g'). If not provided, uses default serving size from food item.",
     )
+
+
+class CreateFoodInput(BaseModel):
+    """Input model for creating a new food entry in the MFP database."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    brand: str = Field(..., description="Brand name of the food", min_length=1, max_length=200)
+    description: str = Field(..., description="Description/name of the food", min_length=1, max_length=200)
+    calories: int = Field(..., description="Calories per serving", ge=0, le=100000)
+    fat: float = Field(..., description="Total fat in grams", ge=0)
+    carbs: float = Field(..., description="Total carbohydrates in grams", ge=0)
+    protein: float = Field(..., description="Protein in grams", ge=0)
+    sodium: Optional[float] = Field(default=None, description="Sodium in mg", ge=0)
+    potassium: Optional[float] = Field(default=None, description="Potassium in mg", ge=0)
+    saturated_fat: Optional[float] = Field(default=None, description="Saturated fat in grams", ge=0)
+    polyunsaturated_fat: Optional[float] = Field(default=None, description="Polyunsaturated fat in grams", ge=0)
+    fiber: Optional[float] = Field(default=None, description="Dietary fiber in grams", ge=0)
+    monounsaturated_fat: Optional[float] = Field(default=None, description="Monounsaturated fat in grams", ge=0)
+    sugar: Optional[float] = Field(default=None, description="Sugar in grams", ge=0)
+    trans_fat: Optional[float] = Field(default=None, description="Trans fat in grams", ge=0)
+    cholesterol: Optional[float] = Field(default=None, description="Cholesterol in mg", ge=0)
+    vitamin_a: Optional[float] = Field(default=None, description="Vitamin A in % daily value", ge=0)
+    calcium: Optional[float] = Field(default=None, description="Calcium in % daily value", ge=0)
+    vitamin_c: Optional[float] = Field(default=None, description="Vitamin C in % daily value", ge=0)
+    iron: Optional[float] = Field(default=None, description="Iron in % daily value", ge=0)
+    serving_size: str = Field(default="1 Serving", description="Serving size description (e.g., '1 cup', '100g')")
+    servingspercontainer: float = Field(default=1.0, description="Number of servings per container", gt=0)
+    sharepublic: bool = Field(default=False, description="Whether to share the food publicly in the MFP database")
 
 
 class GetSavedMealsInput(BaseModel):
@@ -1566,7 +1599,7 @@ async def mfp_get_report(params: GetReportInput) -> str:
 
         report = client.get_report(
             report_name=params.report_name,
-            report_category="Nutrition",
+            report_category=params.report_category,
             lower_bound=start,
             upper_bound=end,
         )
@@ -1598,6 +1631,81 @@ async def mfp_get_report(params: GetReportInput) -> str:
 
     except Exception as e:
         return f"Error getting report: {str(e)}"
+
+
+@mcp.tool(
+    name="mfp_create_food",
+    annotations={
+        "title": "Create Food Entry",
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": True,
+    },
+)
+async def mfp_create_food(params: CreateFoodInput) -> str:
+    """
+    Create a new food entry in the MyFitnessPal food database.
+
+    Submits a new food with full nutritional information. The food will appear
+    in search results after a short delay. Required fields are brand, description,
+    calories, fat, carbs, and protein. All other nutrition fields are optional.
+
+    Args:
+        params: CreateFoodInput containing brand, description, calories, macros,
+                and optional nutrition details, serving info, and visibility.
+
+    Returns:
+        str: Confirmation message with the submitted food details
+    """
+    try:
+        client = get_mfp_client()
+        client.set_new_food(
+            brand=params.brand,
+            description=params.description,
+            calories=params.calories,
+            fat=params.fat,
+            carbs=params.carbs,
+            protein=params.protein,
+            sodium=params.sodium,
+            potassium=params.potassium,
+            saturated_fat=params.saturated_fat,
+            polyunsaturated_fat=params.polyunsaturated_fat,
+            fiber=params.fiber,
+            monounsaturated_fat=params.monounsaturated_fat,
+            sugar=params.sugar,
+            trans_fat=params.trans_fat,
+            cholesterol=params.cholesterol,
+            vitamin_a=params.vitamin_a,
+            calcium=params.calcium,
+            vitamin_c=params.vitamin_c,
+            iron=params.iron,
+            serving_size=params.serving_size,
+            servingspercontainer=params.servingspercontainer,
+            sharepublic=params.sharepublic,
+        )
+
+        return json.dumps(
+            {
+                "success": True,
+                "message": f"Successfully created food '{params.brand} {params.description}'",
+                "note": "The food may take a few minutes to appear in search results.",
+                "food": {
+                    "brand": params.brand,
+                    "description": params.description,
+                    "calories": params.calories,
+                    "fat": params.fat,
+                    "carbs": params.carbs,
+                    "protein": params.protein,
+                    "serving_size": params.serving_size,
+                    "public": params.sharepublic,
+                },
+            },
+            indent=2,
+        )
+
+    except Exception as e:
+        return f"Error creating food: {str(e)}"
 
 
 @mcp.tool(
