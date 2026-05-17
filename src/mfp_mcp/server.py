@@ -667,6 +667,53 @@ class AddFoodToDiaryInput(BaseModel):
     )
 
 
+class GetSavedMealsInput(BaseModel):
+    """Input model for getting saved meals."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    response_format: ResponseFormat = Field(
+        default=ResponseFormat.MARKDOWN,
+        description="Output format: 'markdown' for human-readable or 'json' for structured data",
+    )
+
+
+class GetSavedMealInput(BaseModel):
+    """Input model for getting a specific saved meal."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    meal_id: int = Field(..., description="Saved meal ID (obtained from mfp_get_saved_meals)")
+    meal_title: str = Field(..., description="Saved meal title (obtained from mfp_get_saved_meals)", min_length=1)
+    response_format: ResponseFormat = Field(
+        default=ResponseFormat.MARKDOWN,
+        description="Output format: 'markdown' for human-readable or 'json' for structured data",
+    )
+
+
+class GetRecipesInput(BaseModel):
+    """Input model for getting recipes."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    response_format: ResponseFormat = Field(
+        default=ResponseFormat.MARKDOWN,
+        description="Output format: 'markdown' for human-readable or 'json' for structured data",
+    )
+
+
+class GetRecipeInput(BaseModel):
+    """Input model for getting a specific recipe."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    recipe_id: int = Field(..., description="Recipe ID (obtained from mfp_get_recipes)")
+    response_format: ResponseFormat = Field(
+        default=ResponseFormat.MARKDOWN,
+        description="Output format: 'markdown' for human-readable or 'json' for structured data",
+    )
+
+
 class SetWaterInput(BaseModel):
     """Input model for setting water intake."""
 
@@ -1551,6 +1598,167 @@ async def mfp_get_report(params: GetReportInput) -> str:
 
     except Exception as e:
         return f"Error getting report: {str(e)}"
+
+
+@mcp.tool(
+    name="mfp_get_saved_meals",
+    annotations={
+        "title": "Get Saved Meals",
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": True,
+    },
+)
+async def mfp_get_saved_meals(params: GetSavedMealsInput) -> str:
+    """
+    Get all saved/custom meals from MyFitnessPal.
+
+    Returns a list of saved meals with their IDs and names. Use mfp_get_saved_meal
+    to get the full ingredient and nutrition details for a specific meal.
+
+    Args:
+        params: GetSavedMealsInput containing:
+            - response_format (str): 'markdown' or 'json'
+
+    Returns:
+        str: List of saved meals with their IDs and names
+    """
+    try:
+        client = get_mfp_client()
+        meals = client.get_meals()
+
+        data = {
+            "count": len(meals),
+            "meals": [{"id": meal_id, "name": name} for meal_id, name in meals.items()],
+        }
+
+        return format_response(data, params.response_format, "Saved Meals")
+
+    except Exception as e:
+        return f"Error getting saved meals: {str(e)}"
+
+
+@mcp.tool(
+    name="mfp_get_saved_meal",
+    annotations={
+        "title": "Get Saved Meal Details",
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": True,
+    },
+)
+async def mfp_get_saved_meal(params: GetSavedMealInput) -> str:
+    """
+    Get detailed ingredient and nutrition information for a specific saved meal.
+
+    Returns the full list of ingredients with nutritional breakdown for the meal.
+    Use mfp_get_saved_meals first to get the meal ID and title.
+
+    Args:
+        params: GetSavedMealInput containing:
+            - meal_id (int): Saved meal ID (from mfp_get_saved_meals)
+            - meal_title (str): Saved meal title (from mfp_get_saved_meals)
+            - response_format (str): 'markdown' or 'json'
+
+    Returns:
+        str: Full ingredient list and nutritional information for the saved meal
+    """
+    try:
+        client = get_mfp_client()
+        meal = client.get_meal(params.meal_id, params.meal_title)
+
+        data = {
+            "id": params.meal_id,
+            "title": params.meal_title,
+            "meal": meal,
+        }
+
+        return format_response(data, params.response_format, f"Saved Meal: {params.meal_title}")
+
+    except Exception as e:
+        return f"Error getting saved meal: {str(e)}"
+
+
+@mcp.tool(
+    name="mfp_get_recipes",
+    annotations={
+        "title": "Get Recipes",
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": True,
+    },
+)
+async def mfp_get_recipes(params: GetRecipesInput) -> str:
+    """
+    Get all saved recipes from MyFitnessPal.
+
+    Returns a list of recipes with their IDs and names. Use mfp_get_recipe
+    to get the full ingredient and nutrition details for a specific recipe.
+    Note: MyFitnessPal returns up to 10 recipes.
+
+    Args:
+        params: GetRecipesInput containing:
+            - response_format (str): 'markdown' or 'json'
+
+    Returns:
+        str: List of recipes with their IDs and names
+    """
+    try:
+        client = get_mfp_client()
+        recipes = client.get_recipes()
+
+        data = {
+            "count": len(recipes),
+            "recipes": [{"id": recipe_id, "name": name} for recipe_id, name in recipes.items()],
+        }
+
+        return format_response(data, params.response_format, "Recipes")
+
+    except Exception as e:
+        return f"Error getting recipes: {str(e)}"
+
+
+@mcp.tool(
+    name="mfp_get_recipe",
+    annotations={
+        "title": "Get Recipe Details",
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": True,
+    },
+)
+async def mfp_get_recipe(params: GetRecipeInput) -> str:
+    """
+    Get detailed ingredient and nutrition information for a specific recipe.
+
+    Returns the full list of ingredients with nutritional breakdown for the recipe.
+    Use mfp_get_recipes first to get the recipe ID.
+
+    Args:
+        params: GetRecipeInput containing:
+            - recipe_id (int): Recipe ID (from mfp_get_recipes)
+            - response_format (str): 'markdown' or 'json'
+
+    Returns:
+        str: Full ingredient list and nutritional information for the recipe
+    """
+    try:
+        client = get_mfp_client()
+        recipe = client.get_recipe(params.recipe_id)
+
+        data = {
+            "id": params.recipe_id,
+            "recipe": recipe,
+        }
+
+        return format_response(data, params.response_format, "Recipe Details")
+
+    except Exception as e:
+        return f"Error getting recipe: {str(e)}"
 
 
 # ============================================================================
