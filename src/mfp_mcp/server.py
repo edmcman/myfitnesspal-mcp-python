@@ -1483,7 +1483,7 @@ async def mfp_add_food_to_diary(params: AddFoodToDiaryInput) -> str:
             - meal (str): Meal name - 'Breakfast', 'Lunch', 'Dinner', or 'Snacks' (default: 'Breakfast')
             - date (str, optional): Date in YYYY-MM-DD format, defaults to today
             - quantity (float): Number of servings (default: 1.0)
-            - unit (str, optional): Unit/serving size (e.g., '1 cup', '100g')
+            - unit (str, optional): Serving size description to match (e.g., '1 cup', '100g')
 
     Returns:
         str: Confirmation message with details of the added food entry
@@ -1491,35 +1491,36 @@ async def mfp_add_food_to_diary(params: AddFoodToDiaryInput) -> str:
     try:
         client = get_mfp_client()
         target_date = parse_date(params.date)
-        
-        # Normalize meal name (capitalize first letter)
-        meal = params.meal.strip().capitalize()
-        if meal.lower() == "snack":
-            meal = "Snacks"
-        
-        # Add food to diary
-        add_food_to_diary(
-            client=client,
-            mfp_id=params.mfp_id,
-            meal=meal,
-            target_date=target_date,
+        food_id = int(params.mfp_id)
+
+        # Find weight_id from unit description if specified
+        food_item = client.get_food_item_details(food_id)
+        food_name = getattr(food_item, "description", "Unknown Food")
+        weight_id = None
+        if params.unit:
+            unit_lower = params.unit.lower()
+            for serving in food_item.servings:
+                if unit_lower in str(serving).lower():
+                    weight_id = serving.serving_id
+                    break
+            if weight_id is None:
+                available = [str(s) for s in food_item.servings]
+                return f"Error: unit '{params.unit}' not found. Available servings: {', '.join(available)}"
+
+        client.add_food_to_diary(
+            food_id=food_id,
+            meal=params.meal,
+            date=target_date,
             quantity=params.quantity,
-            unit=params.unit,
+            weight_id=weight_id,
         )
-        
-        # Get food details for confirmation
-        try:
-            food_item = client.get_food_item_details(params.mfp_id)
-            food_name = getattr(food_item, "description", "Unknown Food")
-        except:
-            food_name = "Food item"
-        
+
         return json.dumps(
             {
                 "success": True,
-                "message": f"Successfully added {food_name} to {meal}",
+                "message": f"Successfully added {food_name} to {params.meal}",
                 "date": str(target_date),
-                "meal": meal,
+                "meal": params.meal,
                 "food_id": params.mfp_id,
                 "food_name": food_name,
                 "quantity": params.quantity,
@@ -1527,7 +1528,7 @@ async def mfp_add_food_to_diary(params: AddFoodToDiaryInput) -> str:
             },
             indent=2,
         )
-        
+
     except Exception as e:
         return f"Error adding food to diary: {str(e)}"
 
@@ -1560,21 +1561,20 @@ async def mfp_set_water(params: SetWaterInput) -> str:
     try:
         client = get_mfp_client()
         target_date = parse_date(params.date)
-        
-        # Set water intake
-        set_water_intake(client=client, target_date=target_date, cups=params.cups)
-        
+        milliliters = round(params.cups * 236.588, 2)
+        confirmed_ml = client.set_water(date=target_date, milliliters=milliliters)
+
         return json.dumps(
             {
                 "success": True,
                 "message": f"Successfully logged {params.cups} cups of water",
                 "date": str(target_date),
                 "cups": params.cups,
-                "milliliters": round(params.cups * 236.588, 2),
+                "milliliters": confirmed_ml,
             },
             indent=2,
         )
-        
+
     except Exception as e:
         return f"Error setting water intake: {str(e)}"
 
