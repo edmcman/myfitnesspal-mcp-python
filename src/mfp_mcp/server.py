@@ -1412,23 +1412,13 @@ async def mfp_add_food_to_diary(params: AddFoodToDiaryInput) -> str:
         food_id = int(params.mfp_id)
 
         if params.weight_id:
-            # weight_id provided directly (old-format from mfp_search_food weight_ids)
             weight_id = params.weight_id
-            food_name = params.mfp_id  # name not available without v2 lookup
+            food_name = params.mfp_id
         else:
-            # Look up serving size from food details (only works for new-format IDs)
-            food_item = client.get_food_item_details(food_id)
-            food_name = food_item.name
-            if params.unit:
-                unit_lower = params.unit.lower()
-                weight_id = next((s.serving_id for s in food_item.servings if unit_lower in str(s).lower()), None)
-                if weight_id is None:
-                    available = [str(s) for s in food_item.servings]
-                    return f"Error: unit '{params.unit}' not found. Available servings: {', '.join(available)}"
-            else:
-                if not food_item.servings:
-                    return f"Error: No servings found for food ID {food_id}"
-                weight_id = food_item.servings[0].serving_id
+            return (
+                "Error: weight_id is required. Use mfp_search_food to find the food "
+                "and get its weight_ids list, then pass weight_ids[0] as weight_id."
+            )
 
         client.add_food_to_diary(
             food_id=food_id,
