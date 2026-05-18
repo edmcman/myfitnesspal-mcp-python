@@ -484,9 +484,9 @@ class GetFoodDetailsInput(BaseModel):
 
     model_config = ConfigDict(str_strip_whitespace=True)
 
-    mfp_id: str = Field(
+    external_id: str = Field(
         ...,
-        description="MyFitnessPal food item ID (obtained from search results)",
+        description="New-format food ID — use the 'external_id' field from mfp_search_food results (NOT 'mfp_id', which is the old-format ID used for diary writes)",
         min_length=1,
     )
     response_format: ResponseFormat = Field(
@@ -944,6 +944,8 @@ async def mfp_search_food(params: SearchFoodInput) -> str:
             }
             if item.old_weight_ids:
                 entry["weight_ids"] = item.old_weight_ids
+            if item.external_id:
+                entry["external_id"] = item.external_id
             data["results"].append(entry)
 
         return format_response(
@@ -973,7 +975,7 @@ async def mfp_get_food_details(params: GetFoodDetailsInput) -> str:
 
     Args:
         params: GetFoodDetailsInput containing:
-            - mfp_id (str): MyFitnessPal food item ID from search results
+            - external_id (str): New-format food ID from mfp_search_food results
             - response_format (str): 'markdown' or 'json'
 
     Returns:
@@ -981,10 +983,10 @@ async def mfp_get_food_details(params: GetFoodDetailsInput) -> str:
     """
     try:
         client = get_mfp_client()
-        item = client.get_food_item_details(params.mfp_id)
+        item = client.get_food_item_details(params.external_id)
 
         data = {
-            "mfp_id": params.mfp_id,
+            "external_id": params.external_id,
             "description": getattr(item, "description", "N/A"),
             "brand_name": getattr(item, "brand_name", None),
             "verified": getattr(item, "verified", False),
