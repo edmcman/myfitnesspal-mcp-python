@@ -690,6 +690,10 @@ class AddFoodToDiaryInput(BaseModel):
         default=None,
         description="Unit/serving size description (e.g., '1 cup', '100g'). If not provided, uses default serving size from food item.",
     )
+    weight_id: Optional[str] = Field(
+        default=None,
+        description="Serving size ID from mfp_search_food weight_ids list. When provided, skips the food details lookup.",
+    )
 
 
 class QuickAddToDiaryInput(BaseModel):
@@ -931,15 +935,16 @@ async def mfp_search_food(params: SearchFoodInput) -> str:
         data = {"query": params.query, "count": len(results), "results": []}
 
         for item in results:
-            data["results"].append(
-                {
-                    "name": item.name,
-                    "brand": item.brand,
-                    "serving": item.serving,
-                    "calories": item.calories,
-                    "mfp_id": item.mfp_id,
-                }
-            )
+            entry = {
+                "name": item.name,
+                "brand": item.brand,
+                "serving": item.serving,
+                "calories": item.calories,
+                "mfp_id": item.mfp_id,
+            }
+            if item.old_weight_ids:
+                entry["weight_ids"] = item.old_weight_ids
+            data["results"].append(entry)
 
         return format_response(
             data, params.response_format, f"Food Search Results for '{params.query}'"
@@ -1406,19 +1411,24 @@ async def mfp_add_food_to_diary(params: AddFoodToDiaryInput) -> str:
         target_date = parse_date(params.date)
         food_id = int(params.mfp_id)
 
-        # Find weight_id from unit description if specified, otherwise use first serving
-        food_item = client.get_food_item_details(food_id)
-        food_name = food_item.name
-        if params.unit:
-            unit_lower = params.unit.lower()
-            weight_id = next((s.serving_id for s in food_item.servings if unit_lower in str(s).lower()), None)
-            if weight_id is None:
-                available = [str(s) for s in food_item.servings]
-                return f"Error: unit '{params.unit}' not found. Available servings: {', '.join(available)}"
+        if params.weight_id:
+            # weight_id provided directly (old-format from mfp_search_food weight_ids)
+            weight_id = params.weight_id
+            food_name = params.mfp_id  # name not available without v2 lookup
         else:
-            if not food_item.servings:
-                return f"Error: No servings found for food ID {food_id}"
-            weight_id = food_item.servings[0].serving_id
+            # Look up serving size from food details (only works for new-format IDs)
+            food_item = client.get_food_item_details(food_id)
+            food_name = food_item.name
+            if params.unit:
+                unit_lower = params.unit.lower()
+                weight_id = next((s.serving_id for s in food_item.servings if unit_lower in str(s).lower()), None)
+                if weight_id is None:
+                    available = [str(s) for s in food_item.servings]
+                    return f"Error: unit '{params.unit}' not found. Available servings: {', '.join(available)}"
+            else:
+                if not food_item.servings:
+                    return f"Error: No servings found for food ID {food_id}"
+                weight_id = food_item.servings[0].serving_id
 
         client.add_food_to_diary(
             food_id=food_id,
@@ -1431,13 +1441,12 @@ async def mfp_add_food_to_diary(params: AddFoodToDiaryInput) -> str:
         return json.dumps(
             {
                 "success": True,
-                "message": f"Successfully added {food_name} to {params.meal}",
+                "message": f"Successfully added food to {params.meal}",
                 "date": str(target_date),
                 "meal": params.meal,
                 "food_id": params.mfp_id,
                 "food_name": food_name,
                 "quantity": params.quantity,
-                "unit": params.unit,
             },
             indent=2,
         )
