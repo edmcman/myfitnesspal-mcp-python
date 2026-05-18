@@ -9,6 +9,9 @@ A [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server that e
 | `mfp_get_diary` | Read | Get food diary entries for any date |
 | `mfp_search_food` | Read | Search the MyFitnessPal food database |
 | `mfp_get_food_details` | Read | Get detailed nutrition info for a food item |
+| `mfp_get_recent_foods` | Read | Get foods the user has recently logged |
+| `mfp_get_frequent_foods` | Read | Get foods the user logs most frequently |
+| `mfp_get_my_foods` | Read | Get user-created custom foods |
 | `mfp_add_food_to_diary` | Write | Add a food item to your diary for a specific meal and date |
 | `mfp_get_measurements` | Read | Get weight/body measurement history |
 | `mfp_set_measurement` | Write | Log a new weight or body measurement |
@@ -466,6 +469,11 @@ Get nutrition report over a date range.
 - **Browser Cookies**: As a fallback, the server can read your browser cookies to authenticate with MyFitnessPal.
 - **Local Only**: The server runs locally on your machine via stdio transport. No data is sent to any third-party servers.
 - **No External Transmission**: Your MyFitnessPal data is only transmitted between your computer and MyFitnessPal's servers (myfitnesspal.com).
+
+## TODO
+
+- **Search within food lists**: Add query filtering to `mfp_get_recent_foods`, `mfp_get_frequent_foods`, `mfp_get_my_foods`, and `mfp_get_saved_meals` so users can narrow results by name without fetching the full list.
+- **Search saved meals and recipes**: Add dedicated search tools (or a `query` param to existing tools) for finding a specific saved meal or recipe by name.
 
 ## License
 

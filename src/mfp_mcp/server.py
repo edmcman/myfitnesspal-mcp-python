@@ -1785,6 +1785,108 @@ async def mfp_get_saved_meal(params: GetSavedMealInput) -> str:
 
 
 @mcp.tool(
+    name="mfp_get_recent_foods",
+    annotations={
+        "title": "Get Recently Logged Foods",
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": True,
+    },
+)
+async def mfp_get_recent_foods(params: GetSavedMealsInput) -> str:
+    """
+    Get foods the user has recently logged in MyFitnessPal.
+
+    Returns a list of recently used food items with their IDs, names, and
+    serving sizes. Use food_id and weight_id with mfp_add_food_to_diary to
+    quickly re-log a recent food without searching.
+
+    Args:
+        params: GetSavedMealsInput containing:
+            - response_format (str): 'markdown' or 'json'
+
+    Returns:
+        str: List of recently logged foods with food_id, weight_id, and name
+    """
+    try:
+        client = get_mfp_client()
+        foods = client.load_recent_foods()
+        data = {"count": len(foods), "foods": foods}
+        return format_response(data, params.response_format, "Recently Logged Foods")
+    except Exception as e:
+        return f"Error getting recent foods: {str(e)}"
+
+
+@mcp.tool(
+    name="mfp_get_frequent_foods",
+    annotations={
+        "title": "Get Frequently Logged Foods",
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": True,
+    },
+)
+async def mfp_get_frequent_foods(params: GetSavedMealsInput) -> str:
+    """
+    Get foods the user logs most frequently in MyFitnessPal.
+
+    Returns a list of frequently used food items with their IDs, names, and
+    serving sizes. Use food_id and weight_id with mfp_add_food_to_diary to
+    quickly log a habitual food without searching.
+
+    Args:
+        params: GetSavedMealsInput containing:
+            - response_format (str): 'markdown' or 'json'
+
+    Returns:
+        str: List of frequently logged foods with food_id, weight_id, and name
+    """
+    try:
+        client = get_mfp_client()
+        foods = client.load_frequent_foods()
+        data = {"count": len(foods), "foods": foods}
+        return format_response(data, params.response_format, "Frequently Logged Foods")
+    except Exception as e:
+        return f"Error getting frequent foods: {str(e)}"
+
+
+@mcp.tool(
+    name="mfp_get_my_foods",
+    annotations={
+        "title": "Get My Custom Foods",
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": True,
+    },
+)
+async def mfp_get_my_foods(params: GetSavedMealsInput) -> str:
+    """
+    Get custom foods created by the user in MyFitnessPal.
+
+    Returns a list of user-created food items with their IDs, names, and
+    serving sizes. These are foods created with mfp_create_food. Use
+    food_id and weight_id with mfp_add_food_to_diary to log them.
+
+    Args:
+        params: GetSavedMealsInput containing:
+            - response_format (str): 'markdown' or 'json'
+
+    Returns:
+        str: List of user-created foods with food_id, weight_id, and name
+    """
+    try:
+        client = get_mfp_client()
+        foods = client.load_my_foods()
+        data = {"count": len(foods), "foods": foods}
+        return format_response(data, params.response_format, "My Custom Foods")
+    except Exception as e:
+        return f"Error getting my foods: {str(e)}"
+
+
+@mcp.tool(
     name="mfp_get_recipes",
     annotations={
         "title": "Get Recipes",
