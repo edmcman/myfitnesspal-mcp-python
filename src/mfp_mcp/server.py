@@ -690,9 +690,9 @@ class AddFoodToDiaryInput(BaseModel):
         default=None,
         description="Unit/serving size description (e.g., '1 cup', '100g'). If not provided, uses default serving size from food item.",
     )
-    weight_id: Optional[str] = Field(
-        default=None,
-        description="Serving size ID from mfp_search_food weight_ids list. When provided, skips the food details lookup.",
+    weight_id: str = Field(
+        ...,
+        description="Serving size ID from mfp_search_food weight_ids list. Use weight_ids[0] from search results.",
     )
 
 
@@ -1411,10 +1411,8 @@ async def mfp_add_food_to_diary(params: AddFoodToDiaryInput) -> str:
         target_date = parse_date(params.date)
         food_id = int(params.mfp_id)
 
-        if params.weight_id:
-            weight_id = params.weight_id
-            food_name = params.mfp_id
-        else:
+        weight_id = params.weight_id
+        if not weight_id:
             return (
                 "Error: weight_id is required. Use mfp_search_food to find the food "
                 "and get its weight_ids list, then pass weight_ids[0] as weight_id."
@@ -1435,7 +1433,7 @@ async def mfp_add_food_to_diary(params: AddFoodToDiaryInput) -> str:
                 "date": str(target_date),
                 "meal": params.meal,
                 "food_id": params.mfp_id,
-                "food_name": food_name,
+                "food_name": params.mfp_id,
                 "quantity": params.quantity,
             },
             indent=2,
