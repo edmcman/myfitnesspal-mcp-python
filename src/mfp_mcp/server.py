@@ -206,96 +206,81 @@ def authenticate_with_credentials(username: str, password: str) -> Dict[str, str
         raise RuntimeError(f"Authentication failed: {e}")
 
 
-def get_mfp_client():
-    """
-    Get an authenticated MyFitnessPal client.
-    
-    Authentication is attempted in this order:
-    1. Environment variables (MFP_USERNAME, MFP_PASSWORD)
-    2. Stored session cookies (~/.mfp_mcp/cookies.json)
-    3. Browser cookies (Chrome/Firefox)
+_client_cache: Optional["myfitnesspal.Client"] = None
 
-    Returns:
-        myfitnesspal.Client: Authenticated client instance
 
-    Raises:
-        RuntimeError: If all authentication methods fail
-    """
+def _invalidate_client_cache() -> None:
+    global _client_cache
+    _client_cache = None
+
+
+def _build_mfp_client() -> "myfitnesspal.Client":
+    """Create a new authenticated MyFitnessPal client. Tries credentials, stored cookies, then browser cookies."""
     import myfitnesspal
-    
+
     last_error = None
-    
-    # Method 1: Try environment variable credentials
     username = os.environ.get("MFP_USERNAME")
     password = os.environ.get("MFP_PASSWORD")
-    
+
     if username and password:
-        logger.info("Attempting authentication with environment credentials")
-        
-        # First check if we have valid stored cookies from a previous credential auth
         stored_cookies = load_cookies()
         if stored_cookies:
-            logger.info("Found stored session cookies, testing validity...")
+            logger.info("Testing stored session cookies...")
             try:
                 cookiejar = dict_to_cookiejar(stored_cookies)
                 client = myfitnesspal.Client(cookiejar=cookiejar)
-                # Test the connection
                 _ = client.get_date(date.today())
-                logger.info("Stored cookies are valid")
+                logger.info("Stored cookies valid")
                 return client
             except Exception as e:
                 logger.info(f"Stored cookies invalid: {e}, re-authenticating...")
-        
-        # Authenticate with credentials and save cookies
+
         try:
             cookies = authenticate_with_credentials(username, password)
             save_cookies(cookies)
-            
-            # Create client with the new cookies
             cookiejar = dict_to_cookiejar(cookies)
             client = myfitnesspal.Client(cookiejar=cookiejar)
-            # Test the connection
             _ = client.get_date(date.today())
-            logger.info("Successfully authenticated with credentials")
+            logger.info("Authenticated with credentials")
             return client
-            
         except Exception as e:
             last_error = e
             logger.warning(f"Credential authentication failed: {e}")
-            # Fall through to other methods
-    
-    # Method 2: Try stored session cookies (without credential auth)
+
     stored_cookies = load_cookies()
     if stored_cookies:
-        logger.info("Attempting authentication with stored cookies")
         try:
             cookiejar = dict_to_cookiejar(stored_cookies)
             client = myfitnesspal.Client(cookiejar=cookiejar)
-            # Test the connection
             _ = client.get_date(date.today())
-            logger.info("Successfully authenticated with stored cookies")
+            logger.info("Authenticated with stored cookies")
             return client
         except Exception as e:
             last_error = e
             logger.warning(f"Stored cookie authentication failed: {e}")
-    
-    # Method 3: Try browser cookies (default behavior)
-    logger.info("Attempting authentication with browser cookies")
+
     try:
         client = myfitnesspal.Client()
-        # Test the connection
         _ = client.get_date(date.today())
-        logger.info("Successfully authenticated with browser cookies")
+        logger.info("Authenticated with browser cookies")
         return client
     except Exception as e:
         last_error = e
         raise RuntimeError(
             f"All authentication methods failed. Last error: {str(last_error)}\n\n"
             "Please try one of these solutions:\n"
-            "1. Set MFP_USERNAME and MFP_PASSWORD environment variables in Claude Desktop config\n"
+            "1. Set MFP_USERNAME and MFP_PASSWORD environment variables\n"
             "2. Log into myfitnesspal.com in Chrome or Firefox\n"
             "3. Check ~/.mfp_mcp/cookies.json for stored session"
         )
+
+
+def get_mfp_client() -> "myfitnesspal.Client":
+    """Return the cached MFP client, creating it on first call."""
+    global _client_cache
+    if _client_cache is None:
+        _client_cache = _build_mfp_client()
+    return _client_cache
 
 
 # ============================================================================
@@ -2048,8 +2033,9 @@ def refresh_browser_cookies(browser: str = "chrome") -> str:
                 "then try again."
             )
         
-        # Save cookies
+        # Save cookies and reset the cached client so next call re-authenticates
         save_cookies(cookies)
+        _invalidate_client_cache()
         
         # Verify they work
         try:
