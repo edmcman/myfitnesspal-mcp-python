@@ -6,9 +6,12 @@ with MyFitnessPal data including food diary, exercises, measurements, goals,
 water intake, and food search.
 
 Authentication Methods (in order of priority):
-1. Environment variables: MFP_USERNAME and MFP_PASSWORD
+1. Injected session cookie: MFP_SESSION_COOKIE (browser-obtained; required
+   because MFP now gates credential login behind reCAPTCHA)
 2. Stored session cookies: ~/.mfp_mcp/cookies.json
-3. Browser cookies: Chrome/Firefox (fallback)
+3. Credentials: MFP_USERNAME and MFP_PASSWORD (NextAuth; will fail with
+   RecaptchaFailed unless MFP drops the CAPTCHA)
+4. Browser cookies: Chrome/Firefox (fallback)
 """
 
 import json
@@ -135,75 +138,47 @@ def dict_to_cookiejar(cookies_dict: Dict[str, str], domain: str = ".myfitnesspal
 
 
 def authenticate_with_credentials(username: str, password: str) -> Dict[str, str]:
+    """Authenticate with MyFitnessPal via the NextAuth credentials flow.
+
+    MFP gates login behind reCAPTCHA, so this usually fails with
+    RecaptchaFailed; prefer injecting a browser-obtained session cookie via
+    MFP_SESSION_COOKIE.
+
+    Raises RuntimeError with the MFP error name (e.g. RecaptchaFailed) on
+    failure — never returns cookies from a rejected login.
     """
-    Authenticate with MyFitnessPal using username/password.
-    
-    Args:
-        username: MyFitnessPal username or email
-        password: MyFitnessPal password
-    
-    Returns:
-        Dictionary of session cookies
-        
-    Raises:
-        RuntimeError: If authentication fails
-    """
-    # Log authentication attempt without exposing the username
-    logger.info("Authenticating with credentials")
-    
-    # MyFitnessPal login URL and endpoints
-    LOGIN_URL = "https://www.myfitnesspal.com/account/login"
-    
+    logger.info("Authenticating with credentials (NextAuth)")
+    base = "https://www.myfitnesspal.com"
+
     try:
         with httpx.Client(follow_redirects=True, timeout=30.0) as client:
-            # First, get the login page to obtain CSRF token
-            response = client.get(LOGIN_URL)
-            response.raise_for_status()
-            
-            # Extract CSRF token from cookies or page
-            cookies = dict(response.cookies)
-            
-            # Attempt login
-            login_data = {
-                "username": username,
-                "password": password,
-            }
-            
-            # Try the standard form login
-            login_response = client.post(
-                LOGIN_URL,
-                data=login_data,
+            csrf = client.get(f"{base}/api/auth/csrf").json()["csrfToken"]
+            response = client.post(
+                f"{base}/api/auth/callback/credentials",
+                data={
+                    "username": username,
+                    "password": password,
+                    "csrfToken": csrf,
+                    "callbackUrl": f"{base}/",
+                },
                 headers={
                     "Content-Type": "application/x-www-form-urlencoded",
-                    "Referer": LOGIN_URL,
+                    "Referer": f"{base}/account/login",
                 },
             )
-            
-            # Check if login was successful by looking for session cookies
-            all_cookies = dict(client.cookies)
-            
-            # MFP uses various session cookie names
-            session_indicators = ["user", "session", "auth", "logged_in"]
-            has_session = any(
-                any(indicator in name.lower() for indicator in session_indicators)
-                for name in all_cookies.keys()
-            )
-            
-            if has_session or len(all_cookies) > len(cookies):
-                logger.info("Successfully authenticated with credentials")
-                return all_cookies
-            else:
-                # Try to check if we can access authenticated content
-                test_response = client.get("https://www.myfitnesspal.com/food/diary")
-                if test_response.status_code == 200 and "login" not in str(test_response.url).lower():
-                    return dict(client.cookies)
-                    
-                raise RuntimeError("Login appeared to fail - no session cookies received")
-                
+
+            url = str(response.url)
+            if "/api/auth/error" in url or "error=" in url:
+                err = url.split("error=")[-1].split("&")[0]
+                raise RuntimeError(f"MyFitnessPal rejected login: {err}")
+            if not any("session-token" in k for k in client.cookies.keys()):
+                raise RuntimeError("Login returned no session token")
+
+            logger.info("Successfully authenticated with credentials")
+            return dict(client.cookies)
+
     except httpx.HTTPError as e:
         raise RuntimeError(f"HTTP error during authentication: {e}")
-    except Exception as e:
-        raise RuntimeError(f"Authentication failed: {e}")
 
 
 _client_cache: Optional["myfitnesspal.Client"] = None
@@ -215,10 +190,30 @@ def _invalidate_client_cache() -> None:
 
 
 def _build_mfp_client() -> "myfitnesspal.Client":
-    """Create a new authenticated MyFitnessPal client. Tries credentials, stored cookies, then browser cookies."""
+    """Create a new authenticated MyFitnessPal client.
+
+    Priority: injected session cookie (MFP_SESSION_COOKIE), stored cookies,
+    credentials, then browser cookies. Credential login is gated by
+    reCAPTCHA, so the session cookie is the reliable path.
+    """
     import myfitnesspal
 
     last_error = None
+
+    session_cookie = os.environ.get("MFP_SESSION_COOKIE")
+    if session_cookie:
+        cookies = {"__Secure-next-auth.session-token": session_cookie}
+        logger.info("Testing injected session cookie...")
+        try:
+            client = myfitnesspal.Client(cookiejar=dict_to_cookiejar(cookies))
+            _ = client.get_date(date.today())
+            logger.info("Authenticated with injected session cookie")
+            save_cookies(cookies)
+            return client
+        except Exception as e:
+            last_error = e
+            logger.warning(f"Injected session cookie invalid: {e}")
+
     username = os.environ.get("MFP_USERNAME")
     password = os.environ.get("MFP_PASSWORD")
 
@@ -268,10 +263,12 @@ def _build_mfp_client() -> "myfitnesspal.Client":
         last_error = e
         raise RuntimeError(
             f"All authentication methods failed. Last error: {str(last_error)}\n\n"
-            "Please try one of these solutions:\n"
-            "1. Set MFP_USERNAME and MFP_PASSWORD environment variables\n"
-            "2. Log into myfitnesspal.com in Chrome or Firefox\n"
-            "3. Check ~/.mfp_mcp/cookies.json for stored session"
+            "MFP gates credential login behind reCAPTCHA, so set "
+            "MFP_SESSION_COOKIE to a browser-obtained __Secure-next-auth."
+            "session-token cookie value. To get it: log into "
+            "myfitnesspal.com in a browser, open DevTools → Application → "
+            "Cookies → www.myfitnesspal.com, copy the "
+            "__Secure-next-auth.session-token value."
         )
 
 
